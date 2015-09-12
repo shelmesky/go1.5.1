@@ -519,6 +519,8 @@ func mallocgc(size uintptr, typ *_type, flags uint32) unsafe.Pointer {
 
 	shouldhelpgc := false
 	dataSize := size
+	// 此处获取每个M的cache
+	// P的cache会赋值给M，所以M的cache就是P的cache
 	c := gomcache()
 	var s *mspan
 	var x unsafe.Pointer
@@ -573,9 +575,13 @@ func mallocgc(size uintptr, typ *_type, flags uint32) unsafe.Pointer {
 			}
 			// Allocate a new maxTinySize block.
 			s = c.alloc[tinySizeClass]
+			// 如果c的某个尺寸的内存的freelist为空
+			// 则分配
 			v := s.freelist
 			if v.ptr() == nil {
 				systemstack(func() {
+					// 调用mcache.go中的mCache_Refill
+					// mCache_Refill会
 					mCache_Refill(c, tinySizeClass)
 				})
 				shouldhelpgc = true
