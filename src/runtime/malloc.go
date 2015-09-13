@@ -534,6 +534,11 @@ func mallocgc(size uintptr, typ *_type, flags uint32) unsafe.Pointer {
 			// must be FlagNoScan (don't have pointers), this ensures that
 			// the amount of potentially wasted memory is bounded.
 			//
+			// Tiny内存分配器将多个微小的内存分配请求合并为单一的内存块。
+			// 作为结果的内存块会等到多个微小的内存块全部不使用时，才会释放。
+			// 子内存块(微小的内存块)必须是FlagNoScan标志(不包含指针)，这样
+			// 保证了潜在的内存浪费是有界限的。
+			//
 			// Size of the memory block used for combining (maxTinySize) is tunable.
 			// Current setting is 16 bytes, which relates to 2x worst case memory
 			// wastage (when all but one subobjects are unreachable).
@@ -543,9 +548,14 @@ func mallocgc(size uintptr, typ *_type, flags uint32) unsafe.Pointer {
 			// but can lead to 4x worst case wastage.
 			// The best case winning is 8x regardless of block size.
 			//
+			// 用于合并的内存的尺寸是可调节的。
+			// 当前的设置是16字节，
+			//
 			// Objects obtained from tiny allocator must not be freed explicitly.
 			// So when an object will be freed explicitly, we ensure that
 			// its size >= maxTinySize.
+			// 从微小分配器分配的对象不能精确的释放。
+			// 所以如果当一个对象准确的释放，我们保证它的尺寸大于等于maxTinySize。
 			//
 			// SetFinalizer has a special case for objects potentially coming
 			// from tiny allocator, it such case it allows to set finalizers
@@ -555,8 +565,13 @@ func mallocgc(size uintptr, typ *_type, flags uint32) unsafe.Pointer {
 			// standalone escaping variables. On a json benchmark
 			// the allocator reduces number of allocations by ~12% and
 			// reduces heap size by ~20%.
+			//
+			// 微小分配器的主要目标是小字符串和独立的逃逸变量。
+			// 在一个JSON的benchmark中，分配器减少了大约12%的分配次数和
+			// 减少了大约20%的HEAP的大小。
 			off := c.tinyoffset
 			// Align tiny pointer for required (conservative) alignment.
+			// 指针的内存对齐
 			if size&7 == 0 {
 				off = round(off, 8)
 			} else if size&3 == 0 {
@@ -564,6 +579,9 @@ func mallocgc(size uintptr, typ *_type, flags uint32) unsafe.Pointer {
 			} else if size&1 == 0 {
 				off = round(off, 2)
 			}
+			// 如果对齐后的字节小于maxTinySize，并且c.tiny不为nil
+			// 则将off + size赋值给c.tinyoffsetsize
+			// 合并微小内存的分配
 			if off+size <= maxTinySize && c.tiny != nil {
 				// The object fits into existing tiny block.
 				x = add(c.tiny, off)
@@ -581,7 +599,8 @@ func mallocgc(size uintptr, typ *_type, flags uint32) unsafe.Pointer {
 			if v.ptr() == nil {
 				systemstack(func() {
 					// 调用mcache.go中的mCache_Refill
-					// mCache_Refill会
+					// mCache_Refill会填充c的freelist，也就是mspan
+					// 如果freelist为空则从mcentral中一级级向上寻找
 					mCache_Refill(c, tinySizeClass)
 				})
 				shouldhelpgc = true
@@ -634,6 +653,7 @@ func mallocgc(size uintptr, typ *_type, flags uint32) unsafe.Pointer {
 		}
 		c.local_cachealloc += size
 	} else {
+		// 大块内存分配
 		var s *mspan
 		shouldhelpgc = true
 		systemstack(func() {
