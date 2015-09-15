@@ -539,6 +539,9 @@ func mallocgc(size uintptr, typ *_type, flags uint32) unsafe.Pointer {
 			// 子内存块(微小的内存块)必须是FlagNoScan标志(不包含指针)，这样
 			// 保证了潜在的内存浪费是有界限的。
 			//
+			// 编译器保证了不会访问未分配内存的地址，所以多个微小请求
+			// 合并为一个请求时，不会存在这种问题。
+			//
 			// Size of the memory block used for combining (maxTinySize) is tunable.
 			// Current setting is 16 bytes, which relates to 2x worst case memory
 			// wastage (when all but one subobjects are unreachable).
